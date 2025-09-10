@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDS to COSHH Data Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- pdf.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <!-- SheetJS (xlsx) library for Excel generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .file-drop-area.dragover {
+            background-color: #e0f2fe;
+            border-color: #38bdf8;
+        }
+        /* Modal styles */
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-4 w-full max-w-4xl">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-10 my-8">
+            <header class="text-center mb-8">
+                <h1 class="text-3xl md:text-4xl font-bold text-gray-900">SDS to COSHH Data Extractor</h1>
+                <p class="text-gray-600 mt-2">Upload your PDF Safety Data Sheets to automatically generate a COSHH assessment summary in Excel.</p>
+            </header>
+
+            <main>
+                <!-- File Upload Area -->
+                <div id="file-drop-area" class="border-4 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-blue-500 hover:bg-gray-50">
+                    <input type="file" id="pdf-files" accept=".pdf" multiple class="hidden">
+                    <div id="upload-prompt">
+                         <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                        <p class="mt-4 text-lg text-gray-600"><span class="font-semibold text-blue-600">Click to upload</span> or drag and drop</p>
+                        <p class="text-sm text-gray-500">PDF files only</p>
+                    </div>
+                    <div id="file-list" class="hidden text-left mt-4 space-y-2"></div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="mt-6 flex flex-col sm:flex-row gap-4">
+                    <button id="process-btn" class="w-full sm:w-auto flex-grow bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2" disabled>
+                        <svg id="process-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <svg id="spinner" class="animate-spin h-5 w-5 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span id="process-btn-text">Process Files</span>
+                    </button>
+                    <button id="download-btn" class="w-full sm:w-auto bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Download Excel
+                    </button>
+                </div>
+                
+                <!-- Status/Log Area -->
+                <div id="status-container" class="mt-6 hidden">
+                    <h3 class="font-semibold text-lg mb-2">Processing Log:</h3>
+                    <div id="status" class="w-full h-48 bg-gray-900 text-white font-mono text-sm p-4 rounded-lg overflow-y-auto"></div>
+                </div>
+            </main>
+        </div>
+        <footer class="text-center my-6 text-gray-500 text-sm">
+            <p>&copy; 2024 COSHH Assistant. All Rights Reserved.</p>
+        </footer>
+    </div>
+
+    <!-- Raw Text Modal -->
+    <div id="raw-text-modal" class="modal fixed w-full h-full top-0 left-0 flex items-center justify-center hidden">
+        <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50"></div>
+        <div class="modal-container bg-white w-11/12 md:max-w-4xl mx-auto rounded-lg shadow-lg z-50 overflow-y-auto">
+            <div class="modal-content py-4 text-left px-6">
+                <div class="flex justify-between items-center pb-3">
+                    <p id="modal-title" class="text-2xl font-bold">Raw Extracted Text</p>
+                    <button id="modal-close" class="cursor-pointer z-50">
+                        <svg class="fill-current text-black" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 18 18"><path d="M14.53 4.53l-1.06-1.06L9 7.94 4.53 3.47 3.47 4.53 7.94 9l-4.47 4.47 1.06 1.06L9 10.06l4.47 4.47 1.06-1.06L10.06 9z"></path></svg>
+                    </button>
+                </div>
+                <textarea id="modal-textarea" class="w-full h-96 font-mono text-xs border rounded-md p-2 bg-gray-50" readonly></textarea>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // Configure pdf.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+
+    // DOM Elements
+    const fileDropArea = document.getElementById('file-drop-area');
+    const fileInput = document.getElementById('pdf-files');
+    const processBtn = document.getElementById('process-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const statusContainer = document.getElementById('status-container');
+    const statusDiv = document.getElementById('status');
+    const fileListDiv = document.getElementById('file-list');
+    const uploadPrompt = document.getElementById('upload-prompt');
+    const modal = document.getElementById('raw-text-modal');
+    const modalClose = document.getElementById('modal-close');
+    const modalTextarea = document.getElementById('modal-textarea');
+    const modalTitle = document.getElementById('modal-title');
+    
+    // State
+    let excelData = [];
+    let rawTextData = {}; 
+
+    // --- Event Listeners ---
+    fileDropArea.addEventListener('click', () => fileInput.click());
+    fileDropArea.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); fileDropArea.classList.add('dragover'); });
+    fileDropArea.addEventListener('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); fileDropArea.classList.remove('dragover'); });
+    fileDropArea.addEventListener('drop', (e) => {
+        e.preventDefault(); e.stopPropagation(); fileDropArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; handleFileSelection(); }
+    });
+    fileInput.addEventListener('change', handleFileSelection);
+    modalClose.addEventListener('click', () => modal.classList.add('hidden'));
+
+    function handleFileSelection() {
+        downloadBtn.disabled = true;
+        const files = fileInput.files;
+        if (files.length > 0) {
+            fileListDiv.innerHTML = '<strong>Selected Files:</strong>';
+            const list = document.createElement('ul');
+            list.className = 'list-disc list-inside';
+            Array.from(files).forEach(file => {
+                const li = document.createElement('li');
+                li.textContent = `${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+                list.appendChild(li);
+            });
+            fileListDiv.appendChild(list);
+            uploadPrompt.classList.add('hidden'); fileListDiv.classList.remove('hidden');
+            processBtn.disabled = false;
+        } else {
+            uploadPrompt.classList.remove('hidden'); fileListDiv.classList.add('hidden');
+            processBtn.disabled = true;
+        }
+    }
+
+    processBtn.addEventListener('click', async () => {
+        const files = fileInput.files;
+        if (files.length === 0) { logStatus('Please select PDF files first.', 'error'); return; }
+
+        resetUIForProcessing();
+        excelData = [];
+        rawTextData = {};
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            logStatus(`[${i+1}/${files.length}] Processing: ${file.name}`);
+            try {
+                const fileBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(fileBuffer).promise;
+                let fullText = '';
+                for (let j = 1; j <= pdf.numPages; j++) {
+                    const page = await pdf.getPage(j);
+                    const textContent = await page.getTextContent();
+                    fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+                }
+                
+                rawTextData[file.name] = fullText; 
+                logStatus(` -> Extracted ${pdf.numPages} pages of text.`, 'info', file.name);
+                const data = extractInformation(fullText, file.name);
+                excelData.push(data);
+                logStatus(' -> Successfully extracted COSHH data.', 'success');
+            } catch (error) {
+                console.error('Error processing file:', file.name, error);
+                logStatus(`Error processing ${file.name}. It might be corrupted or image-based.`, 'error');
+            }
+        }
+        finalizeProcessing();
+    });
+
+    function resetUIForProcessing() {
+        processBtn.disabled = true; downloadBtn.disabled = true;
+        statusContainer.classList.remove('hidden'); statusDiv.innerHTML = '';
+        document.getElementById('spinner').classList.remove('hidden');
+        document.getElementById('process-icon').classList.add('hidden');
+        document.getElementById('process-btn-text').textContent = 'Processing...';
+    }
+
+    function finalizeProcessing() {
+        if (excelData.length > 0) {
+            downloadBtn.disabled = false;
+            logStatus('Processing complete. Your Excel file is ready for download.', 'success');
+        } else {
+            logStatus('Processing finished, but no data could be extracted.', 'error');
+        }
+        processBtn.disabled = false;
+        document.getElementById('spinner').classList.add('hidden');
+        document.getElementById('process-icon').classList.remove('hidden');
+        document.getElementById('process-btn-text').textContent = 'Process Files';
+    }
+
+    function logStatus(message, type = 'info', fileName = null) {
+        const p = document.createElement('div');
+        p.className = 'flex items-center gap-2';
+        const text = document.createElement('p');
+        text.className = {'info': 'text-gray-300', 'success': 'text-green-400', 'error': 'text-red-400'}[type];
+        text.textContent = `> ${message}`;
+        p.appendChild(text);
+
+        if (fileName && type === 'info') {
+            const viewButton = document.createElement('button');
+            viewButton.textContent = 'View Raw Text';
+            viewButton.className = 'text-blue-400 underline text-xs hover:text-blue-300';
+            viewButton.onclick = () => showRawText(fileName);
+            p.appendChild(viewButton);
+        }
+        statusDiv.appendChild(p);
+        statusDiv.scrollTop = statusDiv.scrollHeight;
+    }
+
+    function showRawText(fileName) {
+        modalTitle.textContent = `Raw Extracted Text for: ${fileName}`;
+        modalTextarea.value = rawTextData[fileName] || 'No text data found for this file.';
+        modal.classList.remove('hidden');
+    }
+    
+    // --- R/S to H/P Phrase Translation Mappings ---
+    const rPhraseMap = { 'R1': 'H200', 'R2': 'H201', 'R3': 'H202', 'R4': 'H203', 'R5': 'H220', 'R6': 'H204', 'R7': 'H221', 'R8': 'H271', 'R9': 'H272', 'R10': 'H226', 'R11': 'H225', 'R12': 'H224', 'R14': 'H260', 'R15': 'H261', 'R16': 'H242', 'R17': 'H250', 'R18': 'EUH018', 'R19': 'EUH019', 'R20': 'H332', 'R21': 'H312', 'R22': 'H302', 'R23': 'H331', 'R24': 'H311', 'R25': 'H301', 'R26': 'H330', 'R27': 'H310', 'R28': 'H300', 'R29': 'EUH029', 'R30': 'EUH030 (obsolete)', 'R31': 'EUH031', 'R32': 'EUH032', 'R33': 'H373', 'R34': 'H314', 'R35': 'H314', 'R36': 'H319', 'R37': 'H335', 'R38': 'H315', 'R39': 'H370', 'R40': 'H351', 'R41': 'H318', 'R42': 'H334', 'R43': 'H317', 'R44': 'EUH044', 'R45': 'H350', 'R46': 'H340', 'R48': 'H372', 'R49': 'H350i', 'R50': 'H400', 'R51': 'H411', 'R52': 'H412', 'R53': 'H413', 'R54': 'H362', 'R55': 'H362', 'R56': 'H360FD', 'R57': 'H360FD', 'R58': 'H410', 'R59': 'EUH201', 'R60': 'H360F', 'R61': 'H360D', 'R62': 'H361f', 'R63': 'H361d', 'R64': 'H362', 'R65': 'H304', 'R66': 'EUH066', 'R67': 'H336', 'R68': 'H341' };
+    const sPhraseMap = { 'S1': 'P273', 'S2': 'P102', 'S3': 'P233', 'S4': 'P233', 'S5': 'P231', 'S6': 'P231 + P232', 'S7': 'P233', 'S8': 'P235', 'S9': 'P235', 'S12': 'P234', 'S13': 'P220', 'S14': 'P221', 'S15': 'P411', 'S16': 'P210', 'S17': 'P220', 'S18': 'P373', 'S20': 'P270', 'S21': 'P270', 'S22': 'P260', 'S23': 'P261', 'S24': 'P280', 'S25': 'P280', 'S26': 'P305 + P351 + P338', 'S27': 'P361', 'S28': 'P302 + P352', 'S29': 'P273', 'S30': 'P261', 'S33': 'P243', 'S35': 'P501', 'S36': 'P280', 'S37': 'P280', 'S38': 'P284', 'S39': 'P280', 'S40': 'P280', 'S41': 'P374', 'S42': 'P284', 'S43': 'P370 + P378', 'S45': 'P301 + P310 + P331', 'S46': 'P301 + P310', 'S47': 'P411', 'S48': 'P401', 'S49': 'P234', 'S50': 'P230', 'S51': 'P260', 'S52': 'P280', 'S53': 'P201', 'S56': 'P501', 'S57': 'P273', 'S59': 'P501', 'S60': 'P501', 'S61': 'P273', 'S62': 'P301 + P310 + P331', 'S63': 'P304 + P312', 'S64': 'P301 + P363' };
+
+    function extractInformation(text, fileName) {
+        const sectionHeaders = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16].map(i => ({
+            num: i,
+            regex: new RegExp(`(?:SECTION|\\b)${i}\\s*[\\.:]?\\s*`, 'i')
+        }));
+        
+        const foundSections = [];
+        // Scan for all section headers to determine boundaries
+        for (const header of sectionHeaders) {
+            const match = text.match(header.regex);
+            if (match) {
+                // Find all matches and pick the first one on a new line or start of text to be more accurate
+                const allMatches = [...text.matchAll(new RegExp(`(?:^|\\n)\\s*${header.regex.source}`, 'gi'))];
+                if (allMatches.length > 0) {
+                     foundSections.push({ num: header.num, index: allMatches[0].index });
+                }
+            }
+        }
+        foundSections.sort((a, b) => a.index - b.index);
+
+        const getSectionTextByMap = (sectionNum) => {
+            const currentIndex = foundSections.findIndex(s => s.num === sectionNum);
+            if (currentIndex === -1) return '';
+            const startIndex = foundSections[currentIndex].index;
+            const nextSection = foundSections[currentIndex + 1];
+            const endIndex = nextSection ? nextSection.index : text.length;
+            return text.substring(startIndex, endIndex);
+        };
+
+        const section2Text = getSectionTextByMap(2);
+        const section4Text = getSectionTextByMap(4);
+        const section8Text = getSectionTextByMap(8);
+        
+        // --- CORRECTED HYBRID H/P and R/S Phrase Extraction ---
+        let hazards = 'Not Found', precautions = 'Not Found', isREACH = 'No';
+        
+        // First, check for H-phrases to determine format
+        const hPhraseTest = section2Text.match(/H\s?\d{3}/i);
+        
+        if (hPhraseTest) {
+            // MODERN FORMAT (REACH/CLP)
+            isREACH = 'Yes';
+            const hPhrases = section2Text.match(/(H\s*\d{3}[^.\n]*)/gi);
+            if (hPhrases) {
+                hazards = hPhrases.map(m => m.replace(/\s+/g, ' ').trim()).join('\n');
+            }
+            const pPhrases = section2Text.match(/(P\s*\d{3}[^.\n]*)/gi);
+            if (pPhrases) {
+                precautions = pPhrases.map(m => m.replace(/\s+/g, ' ').trim()).join('\n');
+            }
+        } else {
+            // OLD FORMAT (CHIP) - No H-phrases found, so look for R/S phrases
+            const rPhrases = [...new Set(section2Text.match(/R\s?\d+(?:[\/-]\d+)*/gi) || [])];
+            if (rPhrases.length > 0) {
+                isREACH = 'No'; // Confirm it's old format
+                hazards = rPhrases.map(r => {
+                    const cleanR = r.replace(/\s/g, '');
+                    const translated = rPhraseMap[cleanR] || 'Translation not found';
+                    return `${cleanR} -> ${translated}`;
+                }).join('\n');
+            }
+
+            const sPhrases = [...new Set(section2Text.match(/S\s?\d+(?:[\/-]\d+)*/gi) || [])];
+            if (sPhrases.length > 0) {
+                precautions = sPhrases.map(s => {
+                    const cleanS = s.replace(/\s/g, '');
+                    const translated = sPhraseMap[cleanS] || 'Translation not found';
+                    return `${cleanS} -> ${translated}`;
+                }).join('\n');
+            }
+        }
+
+        // --- First Aid Extraction ---
+        const extractFirstAidDetail = (text, currentKeywords, allKeywords) => {
+            const startPattern = new RegExp(`(?:${currentKeywords.join('|')})\\s*:\\s*`, 'i');
+            const startMatch = text.match(startPattern);
+            if (!startMatch) return 'Not specified';
+
+            const contentStart = startMatch.index + startMatch[0].length;
+            let content = text.substring(contentStart);
+            let endPosition = content.length;
+
+            for (const keyword of allKeywords) {
+                if (currentKeywords.some(ck => ck.toLowerCase() === keyword.toLowerCase())) continue;
+                const endPattern = new RegExp(`\\b${keyword}\\b\\s*:\\s*`, 'i');
+                const endMatch = content.match(endPattern);
+                if (endMatch && endMatch.index < endPosition) endPosition = endMatch.index;
+            }
+            
+            const subsectionMatch = content.match(/4\.\d+/);
+            if (subsectionMatch && subsectionMatch.index < endPosition) endPosition = subsectionMatch.index;
+
+            return content.substring(0, endPosition).replace(/\s+/g, ' ').trim();
+        };
+        const allFirstAidKeywords = ['EYES', 'Eye contact', 'SKIN', 'Skin contact', 'INHALATION', 'IF INHALED', 'INGESTION', 'IF SWALLOWED'];
+
+        // --- PPE Extraction ---
+        const ppe = (section8Text.replace(/\s+/g, ' ').match(/(?:Personal\s+protective\s+equipment|PPE)\s*:?\s*(.*?)(?=Environmental\s+exposure|SECTION|8\.3\.)/i) || ['', 'Check Section 8 for details'])[1].trim();
+        
+        return {
+            "File Name": fileName, 
+            "Chemical Name": fileName.replace(/\.[^/.]+$/, ""),
+            "REACH/CLP Format": isREACH,
+            "Hazard Statements (H-phrases)": hazards,
+            "Precautionary Statements (P-phrases)": precautions,
+            "First Aid - Inhalation": extractFirstAidDetail(section4Text, ['INHALATION', 'IF INHALED'], allFirstAidKeywords),
+            "First Aid - Skin Contact": extractFirstAidDetail(section4Text, ['SKIN', 'Skin contact'], allFirstAidKeywords),
+            "First Aid - Eye Contact": extractFirstAidDetail(section4Text, ['EYES', 'Eye contact'], allFirstAidKeywords),
+            "First Aid - Ingestion": extractFirstAidDetail(section4Text, ['INGESTION', 'IF SWALLOWED'], allFirstAidKeywords),
+            "Personal Protective Equipment (PPE)": ppe
+        };
+    }
+
+    downloadBtn.addEventListener('click', () => {
+        if (excelData.length === 0) { logStatus('No data available to download.', 'error'); return; }
+        const worksheet = XLSX.utils.json_to_sheet(excelData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'COSHH Data');
+        worksheet['!cols'] = Object.keys(excelData[0]).map(key => ({ wch: Math.max(key.length, ...excelData.map(row => (row[key] ? row[key].toString().length : 0))) + 2 }));
+        XLSX.writeFile(workbook, 'COSHH_Assessment_Data.xlsx');
+        logStatus('Excel file download initiated.', 'success');
+    });
+</script>
+</body>
+</html>
